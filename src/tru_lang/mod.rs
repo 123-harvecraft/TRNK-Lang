@@ -10,6 +10,7 @@ pub mod parser;
 pub mod interpreter;
 pub mod compiler;
 pub mod stdlib;
+pub mod scaffold;
 
 // ─── Re-exports ───────────────────────────────────────────────────────────────
 
@@ -18,6 +19,7 @@ pub use ast::{Program, Stmt, Expr, BinOp, UnOp};
 pub use parser::Parser;
 pub use interpreter::{Interpreter, Value, Env};
 pub use compiler::{Compiler, compile_tru};
+pub use scaffold::new_project;
 
 // ─── High-level API ───────────────────────────────────────────────────────────
 
@@ -57,15 +59,42 @@ impl From<std::io::Error>           for TruError { fn from(e: std::io::Error)   
 pub fn run_source(source: &str) -> TruResult<Value> {
     let program = Parser::parse(source)?;
     let mut interp = Interpreter::new();
-    stdlib::load(&interp_env_dummy()); // pre-load stdlib symbols
     let result = interp.run(&program)?;
     Ok(result)
 }
 
 /// Run a .tru file directly.
 pub fn run_file<P: AsRef<Path>>(path: P) -> TruResult<Value> {
-    let source = std::fs::read_to_string(&path)?;
+    let path = path.as_ref();
+    let source = std::fs::read_to_string(path)?;
+    let source = expand_local_uses(&source, path.parent().unwrap_or(Path::new(".")))?;
     run_source(&source)
+}
+
+/// Replaces each `use modules::<name>;` line with the contents of `<dir>/modules/<name>.tru`.
+// ponytail: textual include, one level, shared global scope, and error line numbers shift
+// after an include. Replace with a real module system (scoped `mod`, `a::b()` calls) when needed.
+fn expand_local_uses(source: &str, dir: &Path) -> std::io::Result<String> {
+    use std::io::{Error, ErrorKind};
+    let mut out = String::with_capacity(source.len());
+    for line in source.lines() {
+        let Some(rest) = line.trim().strip_prefix("use modules::") else {
+            out.push_str(line);
+            out.push('\n');
+            continue;
+        };
+        let name = rest
+            .strip_suffix(';')
+            .map(str::trim)
+            .filter(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'))
+            .ok_or_else(|| Error::new(ErrorKind::InvalidInput, format!("invalid module import `{}`, expected `use modules::<name>;`", line.trim())))?;
+        let file = dir.join("modules").join(format!("{name}.tru"));
+        let text = std::fs::read_to_string(&file)
+            .map_err(|e| Error::new(e.kind(), format!("cannot load module {}: {e}", file.display())))?;
+        out.push_str(&text);
+        out.push('\n');
+    }
+    Ok(out)
 }
 
 /// Transpile TRU source to Rust source.
@@ -101,8 +130,10 @@ impl TruRepl {
     pub fn new() -> Self {
         let env = Env::new();
         stdlib::load(&env);
+        let mut interp = Interpreter::new();
+        interp.load_stdlib(&env);
         Self {
-            interp: Interpreter::new(),
+            interp,
             env,
             history: Vec::new(),
         }
@@ -142,9 +173,6 @@ impl Interpreter {
         self.exec_block(stmts, env)
     }
 }
-
-// Dummy helper — stdlib::load needs an &Env; we pass the real one from run_source
-fn interp_env_dummy() -> Env { Env::new() }
 
 // ─── Language info ────────────────────────────────────────────────────────────
 

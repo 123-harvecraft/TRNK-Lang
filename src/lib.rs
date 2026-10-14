@@ -19,7 +19,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use warp::Rejection;
-use domain::models::routine::user::User;
 
 // Core modules
 pub mod utils;
@@ -69,7 +68,7 @@ pub use trunk_lang_core::*;
 pub use tru_lang::{run_source, run_file, transpile_source, transpile_file,
                    transpile_to_rs, TruRepl, TruError, TruResult,
                    Parser, Interpreter, Compiler, Value, Env,
-                   compile_tru, TRU_VERSION, TRU_EXTENSION, TRU_CRATE_NAME};
+                   compile_tru, new_project, TRU_VERSION, TRU_EXTENSION, TRU_CRATE_NAME};
 
 // Re-export TRUNg configuration
 pub use trung_config::*;
@@ -144,10 +143,10 @@ mod tests {
 
     #[test]
     fn test_utility_functions() {
-        let time = utils::current_time();
+        let time = utils::helperUtils::current_time();
         assert!(!time.is_empty());
-        
-        let uuid = utils::uniqueIdUUID();
+
+        let uuid = utils::helperUtils::uniqueIdUUID();
         assert!(!uuid.is_empty());
     }
 }
